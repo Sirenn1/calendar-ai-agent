@@ -1,0 +1,7 @@
+.env
+config.json
+secrets/
+node_modules/
+google_apis.py
+client_secret.json
+.env
