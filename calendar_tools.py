@@ -215,3 +215,124 @@ def list_calendars():
     for cal in calendars['items']:
         print(f"Calendar Name: {cal['summary']}, ID: {cal['id']}")
 list_calendars()
+
+def update_calendar_event(calendar_id, event_id, **kwargs):
+    """
+    Updates an existing calendar event.
+
+    Parameters:
+    - calendar_id: The ID of the calendar containing the event
+    - event_id: The ID of the event to update
+    - **kwargs: The updated event details
+    """
+    try:
+        event = calendar_service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        # Update the event with new details
+        for key, value in kwargs['kwargs'].items():
+            event[key] = value
+        updated_event = calendar_service.events().update(
+            calendarId=calendar_id,
+            eventId=event_id,
+            body=event
+        ).execute()
+        print(f"Successfully updated event {event_id}")
+        return updated_event
+    except Exception as e:
+        print(f"Error updating event: {e}")
+        return None
+
+def get_calendar_busy_times(calendar_id, time_min, time_max):
+    """
+    Gets the busy time slots for a calendar within a specified time range.
+
+    Parameters:
+    - calendar_id: The ID of the calendar to check
+    - time_min: Start time in RFC3339 format
+    - time_max: End time in RFC3339 format
+
+    Returns:
+    - list: List of busy time periods
+    """
+    try:
+        body = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "items": [{"id": calendar_id}]
+        }
+        response = calendar_service.freebusy().query(body=body).execute()
+        busy_times = response['calendars'][calendar_id]['busy']
+        return busy_times
+    except Exception as e:
+        print(f"Error getting busy times: {e}")
+        return []
+
+def create_recurring_event(calendar_id, **kwargs):
+    """
+    Creates a recurring event in the specified calendar.
+
+    Parameters:
+    - calendar_id: The ID of the calendar where the event will be created
+    - **kwargs: Event details including recurrence rules
+    
+    Example recurrence rule:
+    'recurrence': ['RRULE:FREQ=WEEKLY;COUNT=10']  # Repeats weekly for 10 weeks
+    """
+    try:
+        event = calendar_service.events().insert(
+            calendarId=calendar_id,
+            body=kwargs['kwargs']
+        ).execute()
+        print(f"Created recurring event: {event.get('summary')}")
+        return event
+    except Exception as e:
+        print(f"Error creating recurring event: {e}")
+        return None
+
+def suggest_study_slots(calendar_id, exam_date, hours_needed, days_before=7):
+    """
+    Suggests study time slots before an exam.
+
+    Parameters:
+    - calendar_id: The ID of the calendar to check
+    - exam_date: The date of the exam in RFC3339 format
+    - hours_needed: Total hours of study time needed
+    - days_before: How many days before the exam to start studying
+
+    Returns:
+    - list: Suggested study time slots
+    """
+    from datetime import datetime, timedelta
+    
+    exam_dt = datetime.fromisoformat(exam_date.replace('Z', '+00:00'))
+    start_dt = exam_dt - timedelta(days=days_before)
+    
+    # Get busy times
+    busy_times = get_calendar_busy_times(
+        calendar_id,
+        start_dt.isoformat() + 'Z',
+        exam_date
+    )
+    
+    # Find free slots (simplified algorithm)
+    suggested_slots = []
+    current_dt = start_dt
+    hours_scheduled = 0
+    
+    while current_dt < exam_dt and hours_scheduled < hours_needed:
+        # Skip if current time is in a busy slot
+        is_busy = any(
+            current_dt.isoformat() + 'Z' >= slot['start'] and 
+            current_dt.isoformat() + 'Z' < slot['end'] 
+            for slot in busy_times
+        )
+        
+        if not is_busy and current_dt.hour >= 9 and current_dt.hour <= 17:
+            suggested_slots.append({
+                'start': current_dt.isoformat() + 'Z',
+                'end': (current_dt + timedelta(hours=2)).isoformat() + 'Z'
+            })
+            hours_scheduled += 2
+        
+        current_dt += timedelta(hours=1)
+    
+    return suggested_slots
