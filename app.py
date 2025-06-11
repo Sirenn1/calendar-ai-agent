@@ -17,6 +17,7 @@ from streamlit_calendar import calendar
 load_dotenv()
 
 client = OpenAI()
+swarm_client = Swarm()
 
 # Initialize session state
 if 'messages' not in st.session_state:
@@ -127,35 +128,26 @@ def show_calendar_view():
                 delete_calendar_event(selected_calendar_id, event_id)
                 st.rerun()
 
-def process_message(message):
-    """Process chat messages and handle calendar-related commands"""
-    message_lower = message.lower()
-    
-    if "show calendar" in message_lower:
-        st.session_state.show_calendar = True
-        return "Here's your calendar view! You can interact with events and use different views."
-    
-    elif "hide calendar" in message_lower:
-        st.session_state.show_calendar = False
-        return "I've hidden the calendar view. Let me know if you need anything else!"
-    
-    elif "list events" in message_lower:
-        events = list_calendar_events(selected_calendar_id)
-        if not events:
-            return "You don't have any upcoming events."
-        
-        response = "Here are your upcoming events:\n\n"
-        for event in events:
-            start = event.get('start', {})
-            if 'date' in start:
-                date_str = start['date']
-            else:
-                date_str = start.get('dateTime', 'No date specified')
-            response += f"- {event['summary']} on {date_str}\n"
-        return response
-    
-    else:
-        return "I'm here to help you manage your calendar! You can:\n- Say 'show calendar' to see your calendar\n- Say 'hide calendar' to hide it\n- Say 'list events' to see upcoming events\n- Ask me to create or delete events"
+def process_message_with_agent(user_message):
+    """Process chat messages using the Swarm AI agent."""
+    # Build chat history for Swarm (system prompt is handled by agent)
+    history = []
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            history.append({"role": "user", "content": msg["content"]})
+        elif msg["role"] == "assistant":
+            history.append({"role": "assistant", "content": msg["content"]})
+    # Add the new user message
+    history.append({"role": "user", "content": user_message})
+    # Run the agent
+    response = swarm_client.run(agent=main_agent, messages=history)
+    # Get the last assistant message
+    ai_message = None
+    for msg in response.messages[::-1]:
+        if msg.get("role") == "assistant":
+            ai_message = msg.get("content")
+            break
+    return ai_message or "(No response from agent)"
 
 if view == "Calendar View":
     st.header("📅 Calendar View")
@@ -244,29 +236,27 @@ elif view == "Add Event":
                 st.error(f"Error adding event: {str(e)}")
 
 else:  # Chat Assistant
-    st.header("💬 Chat Assistant")
-    
+    st.header("\U0001F4AC Chat Assistant")
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-        
-        # Show calendar if requested
-        if message["role"] == "assistant" and st.session_state.show_calendar:
-            show_calendar_view()
+        # Show calendar if requested (optional: you can add logic to detect this from agent output)
+        # if message["role"] == "assistant" and st.session_state.show_calendar:
+        #     show_calendar_view()
 
     # Accept user input
     if prompt := st.chat_input("How can I help you with your calendar?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
-        # Process message and add assistant response
-        response = process_message(prompt)
+        # Get AI response from agent
+        response = process_message_with_agent(prompt)
         with st.chat_message("assistant"):
             st.markdown(response)
-            if st.session_state.show_calendar:
-                show_calendar_view()
+            # Optionally, show calendar if agent says so
+            # if st.session_state.show_calendar:
+            #     show_calendar_view()
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 # Footer

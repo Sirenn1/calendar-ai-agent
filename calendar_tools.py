@@ -187,7 +187,13 @@ def insert_calendar_event(calendar_id, **kwargs):
             request_body['start'] = {'date': today}
             request_body['end'] = {'date': today}
             print(f"No date found in summary, using: {today}")  # Debug print for no date case
-    
+    else:
+        # If dateTime is present but no timeZone, default to Asia/Jakarta (UTC+7)
+        if 'dateTime' in request_body['start'] and 'timeZone' not in request_body['start']:
+            request_body['start']['timeZone'] = 'Asia/Jakarta'
+        if 'dateTime' in request_body.get('end', {}) and 'timeZone' not in request_body['end']:
+            request_body['end']['timeZone'] = 'Asia/Jakarta'
+
     event = calendar_service.events().insert(
         calendarId=calendar_id,
         body=request_body
