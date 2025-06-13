@@ -10,9 +10,14 @@ from calendar_tools import (
     list_calendar_events, 
     insert_calendar_event, 
     create_calendar_list,
-    delete_calendar_event
+    delete_calendar_event,
+    get_event_statistics,
+    export_calendar_to_csv
 )
 from streamlit_calendar import calendar
+import pandas as pd
+import json
+import os
 
 load_dotenv()
 
@@ -30,32 +35,71 @@ if 'show_calendar' not in st.session_state:
     st.session_state.show_calendar = False
 if 'calendar_events' not in st.session_state:
     st.session_state.calendar_events = []
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
 view = st.sidebar.radio(
     "Choose a view",
-    ["Calendar View", "Add Event", "Chat Assistant"]
+    ["Calendar View", "Add Event", "Chat Assistant", "Statistics", "Export"]
 )
 
 # Header
-st.title("Exam Calendar Manager")
+st.title("📅 Google Calendar Manager")
+
+# Event categories and their colors
+EVENT_CATEGORIES = {
+    "Meeting": "#4285F4",  # Google Blue
+    "Task": "#EA4335",    # Google Red
+    "Event": "#FBBC05",   # Google Yellow
+    "Reminder": "#34A853", # Google Green
+    "Personal": "#9C27B0", # Purple
+    "Work": "#FF9800",     # Orange
+    "Study": "#795548",    # Brown
+    "Other": "#607D8B"     # Blue Grey
+}
+
+# Get user's timezone
+def get_user_timezone():
+    try:
+        # Try to get timezone from environment variable
+        user_tz = os.environ.get('TZ', 'UTC')
+        # Validate the timezone
+        pytz.timezone(user_tz)
+        return user_tz
+    except:
+        # Default to UTC if timezone is invalid
+        return 'UTC'
 
 def get_calendars():
     calendars = list_calendar_list()
     return {cal['name']: cal['id'] for cal in calendars}
 
 def format_event_time(event):
-    start = event.get('start', {})
-    if 'date' in start:  # All-day event
-        return f"All day on {start['date']}"
-    elif 'dateTime' in start:  # Timed event
-        dt = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return "Time not specified"
+    try:
+        user_tz = pytz.timezone(get_user_timezone())
+        
+        if 'dateTime' in event['start']:
+            # Parse the ISO format datetime
+            start_time = datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+            # Convert to user's timezone
+            start_time = start_time.astimezone(user_tz)
+            
+            if 'dateTime' in event['end']:
+                end_time = datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00'))
+                end_time = end_time.astimezone(user_tz)
+                return f"{start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
+            return f"{start_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
+        else:
+            # All-day event
+            return "All Day"
+    except Exception as e:
+        return "Time not available"
 
 # Calendar selection in sidebar
 calendars = get_calendars()
+print("Available calendars:", calendars)  # Debug line
 selected_calendar_name = st.sidebar.selectbox(
     "Select Calendar",
     list(calendars.keys()),
@@ -63,8 +107,13 @@ selected_calendar_name = st.sidebar.selectbox(
 )
 selected_calendar_id = calendars[selected_calendar_name]
 
+# Display user's timezone
+user_tz = get_user_timezone()
+st.sidebar.info(f"Timezone: {user_tz}")
+
 def format_events_for_calendar(events):
     """Format events for the calendar component"""
+    jakarta_tz = pytz.timezone('Asia/Jakarta')
     formatted_events = []
     for event in events:
         start = event.get('start', {})
@@ -76,8 +125,13 @@ def format_events_for_calendar(events):
             end_str = end.get('date', start['date'])
             all_day = True
         else:
-            start_str = start.get('dateTime', '')
-            end_str = end.get('dateTime', start_str)
+            # Convert times to Jakarta timezone
+            start_dt = datetime.fromisoformat(start.get('dateTime', '').replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(end.get('dateTime', start.get('dateTime', '')).replace('Z', '+00:00'))
+            start_dt = start_dt.astimezone(jakarta_tz)
+            end_dt = end_dt.astimezone(jakarta_tz)
+            start_str = start_dt.isoformat()
+            end_str = end_dt.isoformat()
             all_day = False
             
         formatted_events.append({
@@ -149,26 +203,107 @@ def process_message_with_agent(user_message):
             break
     return ai_message or "(No response from agent)"
 
+def get_event_statistics(events):
+    """Calculate statistics about events"""
+    stats = {
+        "total_events": len(events),
+        "by_category": {},
+        "upcoming_events": 0,
+        "all_day_events": 0
+    }
+    
+    current_time = datetime.now(pytz.timezone('Asia/Jakarta'))
+    
+    for event in events:
+        # Count by category
+        category = event.get('category', 'Other')
+        stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
+        
+        # Count upcoming events
+        start = event.get('start', {})
+        if 'dateTime' in start:
+            event_time = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
+            if event_time > current_time:
+                stats['upcoming_events'] += 1
+        elif 'date' in start:
+            event_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
+            if event_date >= current_time.date():
+                stats['upcoming_events'] += 1
+                stats['all_day_events'] += 1
+    
+    return stats
+
+def export_calendar_to_csv(events):
+    """Export calendar events to CSV format"""
+    import csv
+    from io import StringIO
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow(['Title', 'Start Date', 'End Date', 'Category', 'Description', 'Location'])
+    
+    # Write events
+    for event in events:
+        start = event.get('start', {})
+        end = event.get('end', {})
+        
+        start_str = start.get('dateTime', start.get('date', ''))
+        end_str = end.get('dateTime', end.get('date', ''))
+        
+        writer.writerow([
+            event.get('summary', 'Untitled'),
+            start_str,
+            end_str,
+            event.get('category', 'Other'),
+            event.get('description', ''),
+            event.get('location', '')
+        ])
+    
+    return output.getvalue()
+
 if view == "Calendar View":
     st.header("📅 Calendar View")
     
     # Date range selection
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("Start Date", datetime.now())
+        start_date = st.date_input("Start Date", datetime.now(pytz.timezone(user_tz)).date())
     with col2:
-        end_date = st.date_input("End Date", datetime.now() + timedelta(days=30))
+        end_date = st.date_input("End Date", start_date + timedelta(days=7))
+    
+    # Get events
+    events = list_calendar_events(selected_calendar_id)
+    
+    # Filter events by date range
+    filtered_events = []
+    for event in events:
+        try:
+            if 'dateTime' in event['start']:
+                event_date = datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+                event_date = event_date.astimezone(pytz.timezone(user_tz))
+                if start_date <= event_date.date() <= end_date:
+                    filtered_events.append(event)
+            else:
+                # For all-day events, check if the date falls within range
+                event_date = datetime.fromisoformat(event['start']['date']).date()
+                if start_date <= event_date <= end_date:
+                    filtered_events.append(event)
+        except Exception as e:
+            continue
     
     # Display events
-    events = list_calendar_events(selected_calendar_id)
-    if events:
-        st.subheader("Upcoming Events")
-        for event in events:
-            with st.expander(f"{event['summary']} - {format_event_time(event)}"):
+    if filtered_events:
+        for event in filtered_events:
+            with st.expander(f"{event.get('summary', 'Untitled Event')} - {format_event_time(event)}"):
                 st.write(f"Description: {event.get('description', 'No description')}")
-                if st.button(f"Delete {event['summary']}", key=event['id']):
+                st.write(f"Category: {event.get('category', 'Other')}")
+                if st.button(f"Delete {event.get('summary', 'Untitled Event')}", key=event['id']):
                     delete_calendar_event(selected_calendar_id, event['id'])
                     st.success("Event deleted! Please refresh the page.")
+    else:
+        st.info("No events found in the selected date range.")
 
 elif view == "Add Event":
     st.header("➕ Add New Event")
@@ -178,14 +313,42 @@ elif view == "Add Event":
         event_name = st.text_input("Event Name")
         event_description = st.text_area("Description")
         
+        # Add category selection with default and auto-suggest
+        default_category = "Other"
+        if event_name:
+            # Auto-suggest category based on event name
+            event_name_lower = event_name.lower()
+            if any(word in event_name_lower for word in ["meeting", "call", "discussion"]):
+                default_category = "Meeting"
+            elif any(word in event_name_lower for word in ["task", "todo", "assignment"]):
+                default_category = "Task"
+            elif any(word in event_name_lower for word in ["party", "celebration", "gathering"]):
+                default_category = "Event"
+            elif any(word in event_name_lower for word in ["reminder", "deadline", "due"]):
+                default_category = "Reminder"
+            elif any(word in event_name_lower for word in ["personal", "family", "hobby"]):
+                default_category = "Personal"
+            elif any(word in event_name_lower for word in ["work", "project", "business"]):
+                default_category = "Work"
+            elif any(word in event_name_lower for word in ["study", "exam", "class"]):
+                default_category = "Study"
+        
+        event_category = st.selectbox(
+            "Category (Optional)",
+            list(EVENT_CATEGORIES.keys()),
+            index=list(EVENT_CATEGORIES.keys()).index(default_category)
+        )
+        
         col1, col2 = st.columns(2)
         with col1:
-            event_date = st.date_input("Date", datetime.now())
+            # Set default time to current user timezone
+            current_time = datetime.now(pytz.timezone(user_tz))
+            event_date = st.date_input("Date", current_time.date())
         with col2:
             is_all_day = st.checkbox("All Day Event", value=True)
         
         if not is_all_day:
-            event_time = st.time_input("Time", datetime.now().time())
+            event_time = st.time_input("Time", current_time.time())
         
         # Additional features
         location = st.text_input("Location (Optional)")
@@ -198,7 +361,8 @@ elif view == "Add Event":
             event_details = {
                 'summary': event_name,
                 'description': event_description,
-                'location': location if location else None
+                'location': location if location else None,
+                'category': event_category
             }
             
             if is_all_day:
@@ -206,14 +370,16 @@ elif view == "Add Event":
                 event_details['end'] = {'date': event_date.strftime('%Y-%m-%d')}
             else:
                 dt = datetime.combine(event_date, event_time)
-                dt_str = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                # Ensure the datetime is in user's timezone
+                dt = pytz.timezone(user_tz).localize(dt)
+                dt_str = dt.isoformat()
                 event_details['start'] = {
                     'dateTime': dt_str,
-                    'timeZone': 'Asia/Jakarta'
+                    'timeZone': user_tz
                 }
                 event_details['end'] = {
-                    'dateTime': (dt + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S'),
-                    'timeZone': 'Asia/Jakarta'
+                    'dateTime': (dt + timedelta(hours=1)).isoformat(),
+                    'timeZone': user_tz
                 }
             
             if reminder != "None":
@@ -235,8 +401,80 @@ elif view == "Add Event":
             except Exception as e:
                 st.error(f"Error adding event: {str(e)}")
 
+elif view == "Statistics":
+    st.header("📊 Calendar Statistics")
+    
+    events = list_calendar_events(selected_calendar_id)
+    stats = get_event_statistics(events)
+    
+    # Display statistics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Events", stats['total_events'])
+    with col2:
+        st.metric("Upcoming Events", stats['upcoming_events'])
+    with col3:
+        st.metric("All-Day Events", stats['all_day_events'])
+    
+    # Category distribution
+    st.subheader("Events by Category")
+    category_data = pd.DataFrame({
+        'Category': list(stats['by_category'].keys()),
+        'Count': list(stats['by_category'].values())
+    })
+    st.bar_chart(category_data.set_index('Category'))
+
+elif view == "Export":
+    st.header("📤 Export Calendar")
+    
+    events = list_calendar_events(selected_calendar_id)
+    
+    # Export options
+    export_format = st.radio(
+        "Export Format",
+        ["CSV", "JSON"]
+    )
+    
+    if export_format == "CSV":
+        csv_data = export_calendar_to_csv(events)
+        st.download_button(
+            label="Download CSV",
+            data=csv_data,
+            file_name="calendar_events.csv",
+            mime="text/csv"
+        )
+    else:  # JSON
+        json_data = json.dumps(events, indent=2)
+        st.download_button(
+            label="Download JSON",
+            data=json_data,
+            file_name="calendar_events.json",
+            mime="application/json"
+        )
+
 else:  # Chat Assistant
     st.header("\U0001F4AC Chat Assistant")
+    
+    # Add search bar
+    search_query = st.text_input("🔍 Search Events", key="search_query")
+    if search_query:
+        events = list_calendar_events(selected_calendar_id)
+        filtered_events = [
+            event for event in events
+            if search_query.lower() in event.get('summary', '').lower() or
+               search_query.lower() in event.get('description', '').lower()
+        ]
+        if filtered_events:
+            st.subheader("Search Results")
+            for event in filtered_events:
+                with st.expander(f"{event.get('summary', 'Untitled Event')} - {format_event_time(event)}"):
+                    st.write(f"Description: {event.get('description', 'No description')}")
+                    st.write(f"Category: {event.get('category', 'Other')}")
+                    if st.button(f"Delete {event.get('summary', 'Untitled Event')}", key=f"search_{event['id']}"):
+                        delete_calendar_event(selected_calendar_id, event['id'])
+                        st.success("Event deleted! Please refresh the page.")
+        else:
+            st.info("No events found matching your search.")
     
     # Add welcome message if no messages exist
     if not st.session_state.messages:
@@ -273,5 +511,8 @@ st.sidebar.markdown("### Tips")
 st.sidebar.markdown("""
 - Use the Calendar View to see all your events
 - Add new events with specific times and reminders
+- Use categories to organize your events
+- Export your calendar for backup
+- Check statistics to track your schedule
 - Chat with the assistant for natural language support
 """)
