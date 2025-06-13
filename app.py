@@ -43,7 +43,6 @@ st.title("Exam Calendar Manager")
 
 def get_calendars():
     calendars = list_calendar_list()
-    print("Available calendars:", calendars)  # Debug line
     return {cal['name']: cal['id'] for cal in calendars}
 
 def format_event_time(event):
@@ -51,21 +50,8 @@ def format_event_time(event):
     if 'date' in start:  # All-day event
         return f"All day on {start['date']}"
     elif 'dateTime' in start:  # Timed event
-        try:
-            # Handle timezone information
-            dt_str = start['dateTime']
-            if 'Z' in dt_str:  # UTC time
-                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-            else:
-                dt = datetime.fromisoformat(dt_str)
-            # Convert to local timezone if specified
-            if 'timeZone' in start:
-                tz = pytz.timezone(start['timeZone'])
-                dt = dt.astimezone(tz)
-            return dt.strftime("%Y-%m-%d %H:%M")
-        except Exception as e:
-            print(f"Error formatting date: {e}")
-            return "Invalid time format"
+        dt = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
+        return dt.strftime("%Y-%m-%d %H:%M")
     return "Time not specified"
 
 # Calendar selection in sidebar
@@ -178,10 +164,9 @@ if view == "Calendar View":
     if events:
         st.subheader("Upcoming Events")
         for event in events:
-            event_summary = event.get('summary', 'Untitled Event')
-            with st.expander(f"{event_summary} - {format_event_time(event)}"):
+            with st.expander(f"{event['summary']} - {format_event_time(event)}"):
                 st.write(f"Description: {event.get('description', 'No description')}")
-                if st.button(f"Delete {event_summary}", key=event['id']):
+                if st.button(f"Delete {event['summary']}", key=event['id']):
                     delete_calendar_event(selected_calendar_id, event['id'])
                     st.success("Event deleted! Please refresh the page.")
 
@@ -221,20 +206,13 @@ elif view == "Add Event":
                 event_details['end'] = {'date': event_date.strftime('%Y-%m-%d')}
             else:
                 dt = datetime.combine(event_date, event_time)
-                # Format with timezone offset
-                dt_str = dt.strftime('%Y-%m-%dT%H:%M:%S%z')
-                if not dt_str.endswith('+0000'):  # If no timezone info, add it
-                    dt_str = dt_str + '+0700'  # Asia/Jakarta is UTC+7
+                dt_str = dt.strftime('%Y-%m-%dT%H:%M:%S')
                 event_details['start'] = {
                     'dateTime': dt_str,
                     'timeZone': 'Asia/Jakarta'
                 }
-                end_dt = dt + timedelta(hours=1)
-                end_dt_str = end_dt.strftime('%Y-%m-%dT%H:%M:%S%z')
-                if not end_dt_str.endswith('+0000'):
-                    end_dt_str = end_dt_str + '+0700'
                 event_details['end'] = {
-                    'dateTime': end_dt_str,
+                    'dateTime': (dt + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S'),
                     'timeZone': 'Asia/Jakarta'
                 }
             
@@ -259,26 +237,34 @@ elif view == "Add Event":
 
 else:  # Chat Assistant
     st.header("\U0001F4AC Chat Assistant")
+    
+    # Add welcome message if no messages exist
+    if not st.session_state.messages:
+        welcome_message = """👋 Hello! I'm your Calendar Assistant. I can help you with:
+- Viewing your calendar events
+- Adding new events
+- Managing your schedule
+- Answering questions about your calendar
+
+How can I help you today?"""
+        st.session_state.messages.append({"role": "assistant", "content": welcome_message})
+    
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-        # Show calendar if requested (optional: you can add logic to detect this from agent output)
-        # if message["role"] == "assistant" and st.session_state.show_calendar:
-        #     show_calendar_view()
 
     # Accept user input
     if prompt := st.chat_input("How can I help you with your calendar?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
+        
         # Get AI response from agent
         response = process_message_with_agent(prompt)
+        
         with st.chat_message("assistant"):
             st.markdown(response)
-            # Optionally, show calendar if agent says so
-            # if st.session_state.show_calendar:
-            #     show_calendar_view()
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 # Footer
