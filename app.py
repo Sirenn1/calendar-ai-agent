@@ -43,6 +43,7 @@ st.title("Exam Calendar Manager")
 
 def get_calendars():
     calendars = list_calendar_list()
+    print("Available calendars:", calendars)  # Debug line
     return {cal['name']: cal['id'] for cal in calendars}
 
 def format_event_time(event):
@@ -50,8 +51,21 @@ def format_event_time(event):
     if 'date' in start:  # All-day event
         return f"All day on {start['date']}"
     elif 'dateTime' in start:  # Timed event
-        dt = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
-        return dt.strftime("%Y-%m-%d %H:%M")
+        try:
+            # Handle timezone information
+            dt_str = start['dateTime']
+            if 'Z' in dt_str:  # UTC time
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+            else:
+                dt = datetime.fromisoformat(dt_str)
+            # Convert to local timezone if specified
+            if 'timeZone' in start:
+                tz = pytz.timezone(start['timeZone'])
+                dt = dt.astimezone(tz)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception as e:
+            print(f"Error formatting date: {e}")
+            return "Invalid time format"
     return "Time not specified"
 
 # Calendar selection in sidebar
@@ -164,9 +178,10 @@ if view == "Calendar View":
     if events:
         st.subheader("Upcoming Events")
         for event in events:
-            with st.expander(f"{event['summary']} - {format_event_time(event)}"):
+            event_summary = event.get('summary', 'Untitled Event')
+            with st.expander(f"{event_summary} - {format_event_time(event)}"):
                 st.write(f"Description: {event.get('description', 'No description')}")
-                if st.button(f"Delete {event['summary']}", key=event['id']):
+                if st.button(f"Delete {event_summary}", key=event['id']):
                     delete_calendar_event(selected_calendar_id, event['id'])
                     st.success("Event deleted! Please refresh the page.")
 
@@ -206,13 +221,20 @@ elif view == "Add Event":
                 event_details['end'] = {'date': event_date.strftime('%Y-%m-%d')}
             else:
                 dt = datetime.combine(event_date, event_time)
-                dt_str = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                # Format with timezone offset
+                dt_str = dt.strftime('%Y-%m-%dT%H:%M:%S%z')
+                if not dt_str.endswith('+0000'):  # If no timezone info, add it
+                    dt_str = dt_str + '+0700'  # Asia/Jakarta is UTC+7
                 event_details['start'] = {
                     'dateTime': dt_str,
                     'timeZone': 'Asia/Jakarta'
                 }
+                end_dt = dt + timedelta(hours=1)
+                end_dt_str = end_dt.strftime('%Y-%m-%dT%H:%M:%S%z')
+                if not end_dt_str.endswith('+0000'):
+                    end_dt_str = end_dt_str + '+0700'
                 event_details['end'] = {
-                    'dateTime': (dt + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S'),
+                    'dateTime': end_dt_str,
                     'timeZone': 'Asia/Jakarta'
                 }
             
