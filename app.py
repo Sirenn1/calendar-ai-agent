@@ -24,8 +24,7 @@ load_dotenv()
 client = OpenAI()
 swarm_client = Swarm()
 
-# Initialize session state
-if 'messages' not in st.session_state:
+ if 'messages' not in st.session_state:
     st.session_state.messages = []
 if 'selected_calendar' not in st.session_state:
     st.session_state.selected_calendar = None
@@ -38,42 +37,34 @@ if 'calendar_events' not in st.session_state:
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
 
-# Force timezone to Asia/Jakarta
-os.environ['TZ'] = 'Asia/Jakarta'
+ os.environ['TZ'] = 'Asia/Jakarta'
 
-# Sidebar for navigation
-st.sidebar.title("Navigation")
+ st.sidebar.title("Navigation")
 view = st.sidebar.radio(
     "Choose a view",
     ["Calendar View", "Add Event", "Chat Assistant", "Statistics", "Export"]
 )
 
-# Header
-st.title("📅 Google Calendar Manager")
+ st.title("📅 Google Calendar Manager")
 
-# Event categories and their colors
-EVENT_CATEGORIES = {
-    "Meeting": "#4285F4",  # Google Blue
-    "Task": "#EA4335",    # Google Red
-    "Event": "#FBBC05",   # Google Yellow
-    "Reminder": "#34A853", # Google Green
-    "Personal": "#9C27B0", # Purple
-    "Work": "#FF9800",     # Orange
-    "Study": "#795548",    # Brown
-    "Other": "#607D8B"     # Blue Grey
+ EVENT_CATEGORIES = {
+    "Meeting": "#4285F4",   
+    "Task": "#EA4335",    
+    "Event": "#FBBC05",    
+    "Reminder": "#34A853", 
+    "Personal": "#9C27B0",  
+    "Work": "#FF9800",      
+    "Study": "#795548",     
+    "Other": "#607D8B"    
 }
 
-# Get user's timezone
-def get_user_timezone():
+ def get_user_timezone():
     try:
-        # Try to get timezone from environment variable
-        user_tz = os.environ.get('TZ', 'Asia/Jakarta')
-        # Validate the timezone
-        pytz.timezone(user_tz)
+         user_tz = os.environ.get('TZ', 'Asia/Jakarta')
+         pytz.timezone(user_tz)
         return user_tz
     except:
-        # Default to Asia/Jakarta if timezone is invalid
-        return 'Asia/Jakarta'
+         return 'Asia/Jakarta'
 
 def get_calendars():
     calendars = list_calendar_list()
@@ -84,10 +75,8 @@ def format_event_time(event):
         user_tz = pytz.timezone(get_user_timezone())
         
         if 'dateTime' in event['start']:
-            # Parse the ISO format datetime
-            start_time = datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
-            # Convert to user's timezone
-            start_time = start_time.astimezone(user_tz)
+             start_time = datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+             start_time = start_time.astimezone(user_tz)
             
             if 'dateTime' in event['end']:
                 end_time = datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00'))
@@ -95,14 +84,12 @@ def format_event_time(event):
                 return f"{start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
             return f"{start_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
         else:
-            # All-day event
-            return "All Day"
+             return "All Day"
     except Exception as e:
         return "Time not available"
 
-# Calendar selection in sidebar
-calendars = get_calendars()
-print("Available calendars:", calendars)  # Debug line
+ calendars = get_calendars()
+print("Available calendars:", calendars)  
 selected_calendar_name = st.sidebar.selectbox(
     "Select Calendar",
     list(calendars.keys()),
@@ -110,10 +97,9 @@ selected_calendar_name = st.sidebar.selectbox(
 )
 selected_calendar_id = calendars[selected_calendar_name]
 
-# Display user's timezone
-user_tz = get_user_timezone()
+ user_tz = get_user_timezone()
 tz_obj = pytz.timezone(user_tz)
-utc_offset = tz_obj.utcoffset(datetime.now()).total_seconds() / 3600  # Convert to hours
+utc_offset = tz_obj.utcoffset(datetime.now()).total_seconds() / 3600  
 offset_str = f"UTC{'+' if utc_offset >= 0 else ''}{int(utc_offset)}"
 st.sidebar.info(f"Timezone: {user_tz} ({offset_str})")
 
@@ -125,14 +111,12 @@ def format_events_for_calendar(events):
         start = event.get('start', {})
         end = event.get('end', {})
         
-        # Handle all-day events
-        if 'date' in start:
+         if 'date' in start:
             start_str = start['date']
             end_str = end.get('date', start['date'])
             all_day = True
         else:
-            # Convert times to Jakarta timezone
-            start_dt = datetime.fromisoformat(start.get('dateTime', '').replace('Z', '+00:00'))
+             start_dt = datetime.fromisoformat(start.get('dateTime', '').replace('Z', '+00:00'))
             end_dt = datetime.fromisoformat(end.get('dateTime', start.get('dateTime', '')).replace('Z', '+00:00'))
             start_dt = start_dt.astimezone(jakarta_tz)
             end_dt = end_dt.astimezone(jakarta_tz)
@@ -154,12 +138,10 @@ def format_events_for_calendar(events):
 
 def show_calendar_view():
     """Display the calendar component"""
-    # Get events
-    events = list_calendar_events(selected_calendar_id)
+     events = list_calendar_events(selected_calendar_id)
     formatted_events = format_events_for_calendar(events)
     
-    # Calendar options
-    calendar_options = {
+     calendar_options = {
         "headerToolbar": {
             "left": "today prev,next",
             "center": "title",
@@ -173,11 +155,9 @@ def show_calendar_view():
         "events": formatted_events,
     }
     
-    # Create calendar
-    state = calendar(events=formatted_events, options=calendar_options, key="calendar")
+     state = calendar(events=formatted_events, options=calendar_options, key="calendar")
     
-    # Handle calendar interactions
-    if state.get("eventClick"):
+     if state.get("eventClick"):
         event_id = state["eventClick"]["event"]["id"]
         event = next((e for e in events if e['id'] == event_id), None)
         if event:
@@ -190,19 +170,15 @@ def show_calendar_view():
 
 def process_message_with_agent(user_message):
     """Process chat messages using the Swarm AI agent."""
-    # Build chat history for Swarm (system prompt is handled by agent)
-    history = []
+     history = []
     for msg in st.session_state.messages:
         if msg["role"] == "user":
             history.append({"role": "user", "content": msg["content"]})
         elif msg["role"] == "assistant":
             history.append({"role": "assistant", "content": msg["content"]})
-    # Add the new user message
-    history.append({"role": "user", "content": user_message})
-    # Run the agent
-    response = swarm_client.run(agent=main_agent, messages=history)
-    # Get the last assistant message
-    ai_message = None
+     history.append({"role": "user", "content": user_message})
+     response = swarm_client.run(agent=main_agent, messages=history)
+     ai_message = None
     for msg in response.messages[::-1]:
         if msg.get("role") == "assistant":
             ai_message = msg.get("content")
@@ -220,31 +196,28 @@ def get_event_statistics(events):
         "busiest_day": None,
         "busiest_day_count": 0,
         "events_by_time": {
-            "morning": 0,    # 6 AM - 12 PM
-            "afternoon": 0,  # 12 PM - 6 PM
-            "evening": 0,    # 6 PM - 12 AM
-            "night": 0       # 12 AM - 6 AM
+            "morning": 0, 
+            "afternoon": 0,   
+            "evening": 0,     
+            "night": 0    
         }
     }
     
     current_time = datetime.now(pytz.timezone('Asia/Jakarta'))
     
     for event in events:
-        # Count by category (use first word of summary as category)
-        category = event.get('summary', 'Other').split()[0]
+         category = event.get('summary', 'Other').split()[0]
         if category in EVENT_CATEGORIES:
             stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
         else:
             stats['by_category']['Other'] = stats['by_category'].get('Other', 0) + 1
         
-        # Count upcoming events and all-day events
-        start = event.get('start', {})
+         start = event.get('start', {})
         if 'dateTime' in start:
             event_time = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
             event_time = event_time.astimezone(pytz.timezone('Asia/Jakarta'))
             
-            # Count by time of day
-            hour = event_time.hour
+             hour = event_time.hour
             if 6 <= hour < 12:
                 stats['events_by_time']['morning'] += 1
             elif 12 <= hour < 18:
@@ -262,8 +235,7 @@ def get_event_statistics(events):
                 stats['upcoming_events'] += 1
                 stats['all_day_events'] += 1
         
-        # Count events by day
-        if 'date' in start:
+         if 'date' in start:
             date = start['date']
         elif 'dateTime' in start:
             date = start['dateTime'].split('T')[0]
@@ -272,8 +244,7 @@ def get_event_statistics(events):
             
         stats['events_by_day'][date] = stats['events_by_day'].get(date, 0) + 1
         
-        # Update busiest day
-        if stats['events_by_day'][date] > stats['busiest_day_count']:
+         if stats['events_by_day'][date] > stats['busiest_day_count']:
             stats['busiest_day'] = date
             stats['busiest_day_count'] = stats['events_by_day'][date]
     
@@ -287,11 +258,9 @@ def export_calendar_to_csv(events):
     output = StringIO()
     writer = csv.writer(output)
     
-    # Write header
-    writer.writerow(['Title', 'Start Date', 'End Date', 'Category', 'Description', 'Location'])
+     writer.writerow(['Title', 'Start Date', 'End Date', 'Category', 'Description', 'Location'])
     
-    # Write events
-    for event in events:
+     for event in events:
         start = event.get('start', {})
         end = event.get('end', {})
         
@@ -312,18 +281,15 @@ def export_calendar_to_csv(events):
 if view == "Calendar View":
     st.header("📅 Calendar View")
     
-    # Date range selection
-    col1, col2 = st.columns(2)
+     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Start Date", datetime.now(pytz.timezone(user_tz)).date())
     with col2:
         end_date = st.date_input("End Date", start_date + timedelta(days=7))
     
-    # Get events
-    events = list_calendar_events(selected_calendar_id)
+     events = list_calendar_events(selected_calendar_id)
     
-    # Filter events by date range
-    filtered_events = []
+     filtered_events = []
     for event in events:
         try:
             if 'dateTime' in event['start']:
@@ -332,15 +298,13 @@ if view == "Calendar View":
                 if start_date <= event_date.date() <= end_date:
                     filtered_events.append(event)
             else:
-                # For all-day events, check if the date falls within range
-                event_date = datetime.fromisoformat(event['start']['date']).date()
+                 event_date = datetime.fromisoformat(event['start']['date']).date()
                 if start_date <= event_date <= end_date:
                     filtered_events.append(event)
         except Exception as e:
             continue
     
-    # Display events
-    if filtered_events:
+     if filtered_events:
         for event in filtered_events:
             with st.expander(f"{event.get('summary', 'Untitled Event')} - {format_event_time(event)}"):
                 st.write(f"Description: {event.get('description', 'No description')}")
@@ -354,16 +318,13 @@ if view == "Calendar View":
 elif view == "Add Event":
     st.header("➕ Add New Event")
     
-    # Event form
-    with st.form("event_form"):
+     with st.form("event_form"):
         event_name = st.text_input("Event Name")
         event_description = st.text_area("Description")
         
-        # Add category selection with default and auto-suggest
-        default_category = "Other"
+         default_category = "Other"
         if event_name:
-            # Auto-suggest category based on event name
-            event_name_lower = event_name.lower()
+             event_name_lower = event_name.lower()
             if any(word in event_name_lower for word in ["meeting", "call", "discussion"]):
                 default_category = "Meeting"
             elif any(word in event_name_lower for word in ["task", "todo", "assignment"]):
@@ -387,8 +348,7 @@ elif view == "Add Event":
         
         col1, col2 = st.columns(2)
         with col1:
-            # Set default time to current user timezone
-            current_time = datetime.now(pytz.timezone(user_tz))
+             current_time = datetime.now(pytz.timezone(user_tz))
             event_date = st.date_input("Date", current_time.date())
         with col2:
             is_all_day = st.checkbox("All Day Event", value=True)
@@ -396,8 +356,7 @@ elif view == "Add Event":
         if not is_all_day:
             event_time = st.time_input("Time", current_time.time())
         
-        # Additional features
-        location = st.text_input("Location (Optional)")
+         location = st.text_input("Location (Optional)")
         reminder = st.selectbox(
             "Set Reminder",
             ["None", "10 minutes before", "30 minutes before", "1 hour before", "1 day before"]
@@ -416,8 +375,7 @@ elif view == "Add Event":
                 event_details['end'] = {'date': event_date.strftime('%Y-%m-%d')}
             else:
                 dt = datetime.combine(event_date, event_time)
-                # Ensure the datetime is in user's timezone
-                dt = pytz.timezone(user_tz).localize(dt)
+                 dt = pytz.timezone(user_tz).localize(dt)
                 dt_str = dt.isoformat()
                 event_details['start'] = {
                     'dateTime': dt_str,
@@ -450,8 +408,7 @@ elif view == "Add Event":
 
 elif view == "Chat Assistant":
     st.header("💬 Chat Assistant")
-    # Chat interface
-    for message in st.session_state.messages:
+     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
@@ -470,8 +427,7 @@ elif view == "Statistics":
     events = list_calendar_events(selected_calendar_id)
     stats = get_event_statistics(events)
     
-    # Overall statistics
-    col1, col2 = st.columns(2)
+     col1, col2 = st.columns(2)
     with col1:
         st.metric("Total Events", stats["total_events"])
         st.metric("Upcoming Events", stats["upcoming_events"])
@@ -480,8 +436,7 @@ elif view == "Statistics":
         if stats["busiest_day"]:
             st.metric("Busiest Day", f"{stats['busiest_day']} ({stats['busiest_day_count']} events)")
     
-    # Category breakdown
-    st.subheader("Events by Category")
+     st.subheader("Events by Category")
     if stats['by_category']:
         category_data = pd.DataFrame({
             'Category': list(stats['by_category'].keys()),
@@ -491,16 +446,14 @@ elif view == "Statistics":
     else:
         st.info("No events categorized yet.")
     
-    # Time of day distribution
-    st.subheader("Events by Time of Day")
+     st.subheader("Events by Time of Day")
     time_data = pd.DataFrame({
         'Time of Day': list(stats['events_by_time'].keys()),
         'Count': list(stats['events_by_time'].values())
     })
     st.bar_chart(time_data.set_index('Time of Day'))
     
-    # Daily event distribution
-    st.subheader("Events by Day")
+     st.subheader("Events by Day")
     if stats['events_by_day']:
         day_data = pd.DataFrame({
             'Date': list(stats['events_by_day'].keys()),
@@ -517,8 +470,7 @@ elif view == "Export":
     events = list_calendar_events(selected_calendar_id)
     
     if events:
-        # Export format selection
-        export_format = st.radio(
+         export_format = st.radio(
             "Select Export Format",
             ["CSV", "JSON"],
             horizontal=True
@@ -532,9 +484,8 @@ elif view == "Export":
                 file_name="calendar_export.csv",
                 mime="text/csv"
             )
-        else:  # JSON
-            # Format events for JSON export
-            formatted_events = []
+        else:   
+             formatted_events = []
             for event in events:
                 formatted_event = {
                     'title': event.get('summary', ''),
@@ -554,14 +505,12 @@ elif view == "Export":
                 mime="application/json"
             )
             
-            # Show preview of JSON data
-            with st.expander("Preview JSON Data"):
+             with st.expander("Preview JSON Data"):
                 st.json(formatted_events)
     else:
         st.info("No events to export.")
 
-# Footer
-st.sidebar.markdown("---")
+ st.sidebar.markdown("---")
 st.sidebar.markdown("### Tips")
 st.sidebar.markdown("""
 - Use the Calendar View to see all your events
