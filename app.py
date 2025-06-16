@@ -38,6 +38,9 @@ if 'calendar_events' not in st.session_state:
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
 
+# Force timezone to Asia/Jakarta
+os.environ['TZ'] = 'Asia/Jakarta'
+
 # Sidebar for navigation
 st.sidebar.title("Navigation")
 view = st.sidebar.radio(
@@ -64,13 +67,13 @@ EVENT_CATEGORIES = {
 def get_user_timezone():
     try:
         # Try to get timezone from environment variable
-        user_tz = os.environ.get('TZ', 'UTC')
+        user_tz = os.environ.get('TZ', 'Asia/Jakarta')
         # Validate the timezone
         pytz.timezone(user_tz)
         return user_tz
     except:
-        # Default to UTC if timezone is invalid
-        return 'UTC'
+        # Default to Asia/Jakarta if timezone is invalid
+        return 'Asia/Jakarta'
 
 def get_calendars():
     calendars = list_calendar_list()
@@ -109,7 +112,10 @@ selected_calendar_id = calendars[selected_calendar_name]
 
 # Display user's timezone
 user_tz = get_user_timezone()
-st.sidebar.info(f"Timezone: {user_tz}")
+tz_obj = pytz.timezone(user_tz)
+utc_offset = tz_obj.utcoffset(datetime.now()).total_seconds() / 3600  # Convert to hours
+offset_str = f"UTC{'+' if utc_offset >= 0 else ''}{int(utc_offset)}"
+st.sidebar.info(f"Timezone: {user_tz} ({offset_str})")
 
 def format_events_for_calendar(events):
     """Format events for the calendar component"""
@@ -209,20 +215,45 @@ def get_event_statistics(events):
         "total_events": len(events),
         "by_category": {},
         "upcoming_events": 0,
-        "all_day_events": 0
+        "all_day_events": 0,
+        "events_by_day": {},
+        "busiest_day": None,
+        "busiest_day_count": 0,
+        "events_by_time": {
+            "morning": 0,    # 6 AM - 12 PM
+            "afternoon": 0,  # 12 PM - 6 PM
+            "evening": 0,    # 6 PM - 12 AM
+            "night": 0       # 12 AM - 6 AM
+        }
     }
     
     current_time = datetime.now(pytz.timezone('Asia/Jakarta'))
     
     for event in events:
-        # Count by category
-        category = event.get('category', 'Other')
-        stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
+        # Count by category (use first word of summary as category)
+        category = event.get('summary', 'Other').split()[0]
+        if category in EVENT_CATEGORIES:
+            stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
+        else:
+            stats['by_category']['Other'] = stats['by_category'].get('Other', 0) + 1
         
-        # Count upcoming events
+        # Count upcoming events and all-day events
         start = event.get('start', {})
         if 'dateTime' in start:
             event_time = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
+            event_time = event_time.astimezone(pytz.timezone('Asia/Jakarta'))
+            
+            # Count by time of day
+            hour = event_time.hour
+            if 6 <= hour < 12:
+                stats['events_by_time']['morning'] += 1
+            elif 12 <= hour < 18:
+                stats['events_by_time']['afternoon'] += 1
+            elif 18 <= hour < 24:
+                stats['events_by_time']['evening'] += 1
+            else:
+                stats['events_by_time']['night'] += 1
+            
             if event_time > current_time:
                 stats['upcoming_events'] += 1
         elif 'date' in start:
@@ -230,6 +261,21 @@ def get_event_statistics(events):
             if event_date >= current_time.date():
                 stats['upcoming_events'] += 1
                 stats['all_day_events'] += 1
+        
+        # Count events by day
+        if 'date' in start:
+            date = start['date']
+        elif 'dateTime' in start:
+            date = start['dateTime'].split('T')[0]
+        else:
+            continue
+            
+        stats['events_by_day'][date] = stats['events_by_day'].get(date, 0) + 1
+        
+        # Update busiest day
+        if stats['events_by_day'][date] > stats['busiest_day_count']:
+            stats['busiest_day'] = date
+            stats['busiest_day_count'] = stats['events_by_day'][date]
     
     return stats
 
@@ -398,112 +444,121 @@ elif view == "Add Event":
             try:
                 insert_calendar_event(selected_calendar_id, kwargs=event_details)
                 st.success("Event added successfully!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error adding event: {str(e)}")
 
-elif view == "Statistics":
-    st.header("📊 Calendar Statistics")
-    
-    events = list_calendar_events(selected_calendar_id)
-    stats = get_event_statistics(events)
-    
-    # Display statistics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Events", stats['total_events'])
-    with col2:
-        st.metric("Upcoming Events", stats['upcoming_events'])
-    with col3:
-        st.metric("All-Day Events", stats['all_day_events'])
-    
-    # Category distribution
-    st.subheader("Events by Category")
-    category_data = pd.DataFrame({
-        'Category': list(stats['by_category'].keys()),
-        'Count': list(stats['by_category'].values())
-    })
-    st.bar_chart(category_data.set_index('Category'))
-
-elif view == "Export":
-    st.header("📤 Export Calendar")
-    
-    events = list_calendar_events(selected_calendar_id)
-    
-    # Export options
-    export_format = st.radio(
-        "Export Format",
-        ["CSV", "JSON"]
-    )
-    
-    if export_format == "CSV":
-        csv_data = export_calendar_to_csv(events)
-        st.download_button(
-            label="Download CSV",
-            data=csv_data,
-            file_name="calendar_events.csv",
-            mime="text/csv"
-        )
-    else:  # JSON
-        json_data = json.dumps(events, indent=2)
-        st.download_button(
-            label="Download JSON",
-            data=json_data,
-            file_name="calendar_events.json",
-            mime="application/json"
-        )
-
-else:  # Chat Assistant
-    st.header("\U0001F4AC Chat Assistant")
-    
-    # Add search bar
-    search_query = st.text_input("🔍 Search Events", key="search_query")
-    if search_query:
-        events = list_calendar_events(selected_calendar_id)
-        filtered_events = [
-            event for event in events
-            if search_query.lower() in event.get('summary', '').lower() or
-               search_query.lower() in event.get('description', '').lower()
-        ]
-        if filtered_events:
-            st.subheader("Search Results")
-            for event in filtered_events:
-                with st.expander(f"{event.get('summary', 'Untitled Event')} - {format_event_time(event)}"):
-                    st.write(f"Description: {event.get('description', 'No description')}")
-                    st.write(f"Category: {event.get('category', 'Other')}")
-                    if st.button(f"Delete {event.get('summary', 'Untitled Event')}", key=f"search_{event['id']}"):
-                        delete_calendar_event(selected_calendar_id, event['id'])
-                        st.success("Event deleted! Please refresh the page.")
-        else:
-            st.info("No events found matching your search.")
-    
-    # Add welcome message if no messages exist
-    if not st.session_state.messages:
-        welcome_message = """👋 Hello! I'm your Calendar Assistant. I can help you with:
-- Viewing your calendar events
-- Adding new events
-- Managing your schedule
-- Answering questions about your calendar
-
-How can I help you today?"""
-        st.session_state.messages.append({"role": "assistant", "content": welcome_message})
-    
-    # Display chat messages
+elif view == "Chat Assistant":
+    st.header("💬 Chat Assistant")
+    # Chat interface
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-
-    # Accept user input
-    if prompt := st.chat_input("How can I help you with your calendar?"):
+    
+    if prompt := st.chat_input("Ask me about your calendar..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Get AI response from agent
-        response = process_message_with_agent(prompt)
-        
         with st.chat_message("assistant"):
+            response = process_message_with_agent(prompt)
             st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
+elif view == "Statistics":
+    st.header("📊 Calendar Statistics")
+    events = list_calendar_events(selected_calendar_id)
+    stats = get_event_statistics(events)
+    
+    # Overall statistics
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Events", stats["total_events"])
+        st.metric("Upcoming Events", stats["upcoming_events"])
+    with col2:
+        st.metric("All Day Events", stats["all_day_events"])
+        if stats["busiest_day"]:
+            st.metric("Busiest Day", f"{stats['busiest_day']} ({stats['busiest_day_count']} events)")
+    
+    # Category breakdown
+    st.subheader("Events by Category")
+    if stats['by_category']:
+        category_data = pd.DataFrame({
+            'Category': list(stats['by_category'].keys()),
+            'Count': list(stats['by_category'].values())
+        })
+        st.bar_chart(category_data.set_index('Category'))
+    else:
+        st.info("No events categorized yet.")
+    
+    # Time of day distribution
+    st.subheader("Events by Time of Day")
+    time_data = pd.DataFrame({
+        'Time of Day': list(stats['events_by_time'].keys()),
+        'Count': list(stats['events_by_time'].values())
+    })
+    st.bar_chart(time_data.set_index('Time of Day'))
+    
+    # Daily event distribution
+    st.subheader("Events by Day")
+    if stats['events_by_day']:
+        day_data = pd.DataFrame({
+            'Date': list(stats['events_by_day'].keys()),
+            'Count': list(stats['events_by_day'].values())
+        })
+        day_data['Date'] = pd.to_datetime(day_data['Date'])
+        day_data = day_data.sort_values('Date')
+        st.line_chart(day_data.set_index('Date'))
+    else:
+        st.info("No events scheduled yet.")
+
+elif view == "Export":
+    st.header("📤 Export Calendar")
+    events = list_calendar_events(selected_calendar_id)
+    
+    if events:
+        # Export format selection
+        export_format = st.radio(
+            "Select Export Format",
+            ["CSV", "JSON"],
+            horizontal=True
+        )
+        
+        if export_format == "CSV":
+            csv_data = export_calendar_to_csv(events)
+            st.download_button(
+                label="Download Calendar as CSV",
+                data=csv_data,
+                file_name="calendar_export.csv",
+                mime="text/csv"
+            )
+        else:  # JSON
+            # Format events for JSON export
+            formatted_events = []
+            for event in events:
+                formatted_event = {
+                    'title': event.get('summary', ''),
+                    'description': event.get('description', ''),
+                    'location': event.get('location', ''),
+                    'start': event.get('start', {}),
+                    'end': event.get('end', {}),
+                    'category': event.get('summary', 'Other').split()[0] if event.get('summary') else 'Other'
+                }
+                formatted_events.append(formatted_event)
+            
+            json_data = json.dumps(formatted_events, indent=2)
+            st.download_button(
+                label="Download Calendar as JSON",
+                data=json_data,
+                file_name="calendar_export.json",
+                mime="application/json"
+            )
+            
+            # Show preview of JSON data
+            with st.expander("Preview JSON Data"):
+                st.json(formatted_events)
+    else:
+        st.info("No events to export.")
 
 # Footer
 st.sidebar.markdown("---")

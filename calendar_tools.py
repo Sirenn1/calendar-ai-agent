@@ -342,3 +342,117 @@ def suggest_study_slots(calendar_id, exam_date, hours_needed, days_before=7):
         current_dt += timedelta(hours=1)
     
     return suggested_slots
+
+def get_event_statistics(events):
+    """
+    Calculate statistics about calendar events.
+
+    Parameters:
+    - events (list): List of calendar events
+
+    Returns:
+    - dict: Dictionary containing various statistics about the events
+    """
+    if not events:
+        return {
+            'total_events': 0,
+            'events_by_category': {},
+            'events_by_day': {},
+            'busiest_day': None,
+            'busiest_day_count': 0
+        }
+
+    stats = {
+        'total_events': len(events),
+        'events_by_category': {},
+        'events_by_day': {},
+        'busiest_day': None,
+        'busiest_day_count': 0
+    }
+
+    for event in events:
+        # Count events by category
+        category = event.get('summary', 'Other').split()[0]  # Use first word as category
+        stats['events_by_category'][category] = stats['events_by_category'].get(category, 0) + 1
+
+        # Count events by day
+        if 'start' in event:
+            if 'date' in event['start']:
+                date = event['start']['date']
+            elif 'dateTime' in event['start']:
+                date = event['start']['dateTime'].split('T')[0]
+            else:
+                continue
+
+            stats['events_by_day'][date] = stats['events_by_day'].get(date, 0) + 1
+
+            # Update busiest day
+            if stats['events_by_day'][date] > stats['busiest_day_count']:
+                stats['busiest_day'] = date
+                stats['busiest_day_count'] = stats['events_by_day'][date]
+
+    return stats
+
+def export_calendar_to_csv(events):
+    """
+    Export calendar events to a CSV file.
+
+    Parameters:
+    - events (list): List of calendar events
+
+    Returns:
+    - str: Path to the exported CSV file
+    """
+    import csv
+    from datetime import datetime
+    import os
+
+    # Create export directory if it doesn't exist
+    export_dir = 'exports'
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir)
+
+    # Generate filename with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'calendar_export_{timestamp}.csv'
+    filepath = os.path.join(export_dir, filename)
+
+    # Define CSV headers
+    headers = ['Title', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Description', 'Location']
+
+    # Write events to CSV
+    with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+
+        for event in events:
+            # Extract start and end times
+            start = event.get('start', {})
+            end = event.get('end', {})
+            
+            # Handle all-day events
+            if 'date' in start:
+                start_date = start['date']
+                start_time = 'All Day'
+                end_date = end.get('date', start['date'])
+                end_time = 'All Day'
+            else:
+                start_dt = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end['dateTime'].replace('Z', '+00:00'))
+                start_date = start_dt.strftime('%Y-%m-%d')
+                start_time = start_dt.strftime('%H:%M:%S')
+                end_date = end_dt.strftime('%Y-%m-%d')
+                end_time = end_dt.strftime('%H:%M:%S')
+
+            # Write event data
+            writer.writerow({
+                'Title': event.get('summary', ''),
+                'Start Date': start_date,
+                'Start Time': start_time,
+                'End Date': end_date,
+                'End Time': end_time,
+                'Description': event.get('description', ''),
+                'Location': event.get('location', '')
+            })
+
+    return filepath
