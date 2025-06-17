@@ -124,7 +124,6 @@ def list_calendar_events(calendar_id, max_capacity=20):
             pageToken=next_page_token
         ).execute()
         events = events_list.get('items', [])
-        # Print event details for debugging
         for event in events:
             print(f"Found event: {event.get('summary')} on {event.get('start', {}).get('date')} (ID: {event.get('id')})")
         all_events.extend(events)
@@ -147,48 +146,39 @@ def insert_calendar_event(calendar_id, **kwargs):
     Returns:
     - The created event.
     """    
-    # Handle both string JSON and dict input
     if isinstance(kwargs.get('kwargs'), str):
         try:
             request_body = json.loads(kwargs['kwargs'])
         except json.JSONDecodeError:
-            # If JSON parsing fails, assume it's a direct event creation request
             request_body = kwargs['kwargs']
     else:
         request_body = kwargs['kwargs']
     
-    # If no time is specified, create an all-day event
     if 'start' not in request_body or ('dateTime' not in request_body.get('start', {}) and 'date' not in request_body.get('start', {})):
-        # Get the date from the event summary or use today's date
         import datetime
         import re
         
-        # Try to extract date from summary
         date_match = re.search(r'(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]+)(?:\s+(\d{4}))?', request_body['summary'])
         if date_match:
             day = int(date_match.group(1))
             month = date_match.group(2)
-            # If year is specified in the summary, use it; otherwise use 2025 for exam events
             year = int(date_match.group(3)) if date_match.group(3) else 2025
             try:
                 date_str = f"{year}-{datetime.datetime.strptime(month, '%B').month:02d}-{day:02d}"
                 request_body['start'] = {'date': date_str}
                 request_body['end'] = {'date': date_str}
-                print(f"Creating event on {date_str}")  # Debug print to confirm the date
+                print(f"Creating event on {date_str}") 
             except ValueError:
-                # If date parsing fails, use today's date in 2025
                 today = datetime.datetime.now().replace(year=2025).strftime('%Y-%m-%d')
                 request_body['start'] = {'date': today}
                 request_body['end'] = {'date': today}
-                print(f"Using fallback date: {today}")  # Debug print for fallback
+                print(f"Using fallback date: {today}") 
         else:
-            # If no date found in summary, use today's date but in 2025
             today = datetime.datetime.now().replace(year=2025).strftime('%Y-%m-%d')
             request_body['start'] = {'date': today}
             request_body['end'] = {'date': today}
-            print(f"No date found in summary, using: {today}")  # Debug print for no date case
+            print(f"No date found in summary, using: {today}") 
     else:
-        # If dateTime is present but no timeZone, default to Asia/Jakarta (UTC+7)
         if 'dateTime' in request_body['start'] and 'timeZone' not in request_body['start']:
             request_body['start']['timeZone'] = 'Asia/Jakarta'
         if 'dateTime' in request_body.get('end', {}) and 'timeZone' not in request_body['end']:
@@ -233,7 +223,6 @@ def update_calendar_event(calendar_id, event_id, **kwargs):
     """
     try:
         event = calendar_service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-        # Update the event with new details
         for key, value in kwargs['kwargs'].items():
             event[key] = value
         updated_event = calendar_service.events().update(
@@ -281,7 +270,7 @@ def create_recurring_event(calendar_id, **kwargs):
     - **kwargs: Event details including recurrence rules
     
     Example recurrence rule:
-    'recurrence': ['RRULE:FREQ=WEEKLY;COUNT=10']  # Repeats weekly for 10 weeks
+    'recurrence': ['RRULE:FREQ=WEEKLY;COUNT=10'] 
     """
     try:
         event = calendar_service.events().insert(
@@ -312,20 +301,17 @@ def suggest_study_slots(calendar_id, exam_date, hours_needed, days_before=7):
     exam_dt = datetime.fromisoformat(exam_date.replace('Z', '+00:00'))
     start_dt = exam_dt - timedelta(days=days_before)
     
-    # Get busy times
     busy_times = get_calendar_busy_times(
         calendar_id,
         start_dt.isoformat() + 'Z',
         exam_date
     )
     
-    # Find free slots (simplified algorithm)
     suggested_slots = []
     current_dt = start_dt
     hours_scheduled = 0
     
     while current_dt < exam_dt and hours_scheduled < hours_needed:
-        # Skip if current time is in a busy slot
         is_busy = any(
             current_dt.isoformat() + 'Z' >= slot['start'] and 
             current_dt.isoformat() + 'Z' < slot['end'] 
