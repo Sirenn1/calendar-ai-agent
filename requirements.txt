@@ -1,8 +1,9 @@
-streamlit>=1.31.0
-google-api-python-client>=2.118.0
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.0
-python-dotenv>=1.0.0
-pytz>=2024.1
-openai>=1.12.0
-streamlit-calendar>=1.1.0 
+To run this app, make sure you have the following Python packages installed with at least the specified versions:
+Streamlit – version 1.31.0 or higher
+Google API Python Client – version 2.118.0 or higher
+Google Auth HTTPLib2 – version 0.2.0 or higher
+Google Auth OAuthLib – version 1.2.0 or higher
+python-dotenv – version 1.0.0 or higher
+pytz – version 2024.1 or higher
+OpenAI – version 1.12.0 or higher
+Streamlit Calendar – version 1.1.0 or higher
