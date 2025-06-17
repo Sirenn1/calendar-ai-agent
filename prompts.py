@@ -25,7 +25,6 @@ You are a helpful agent who is equipped with a variety of Google calendar functi
                break
        if calendar_id:
            events = list_calendar_events(calendar_id=calendar_id, max_capacity=20)
-
 3. Use create_calendar_list function to create a new calendar.
    - Example usage: create_calendar_list(calendar_name='My Calendar')
    - This function will first check if a calendar with this name already exists. If it does, it will use the existing calendar instead of creating a new one.
