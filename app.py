@@ -74,12 +74,17 @@ def format_event_time(event):
         if 'dateTime' in event['start']:
             start_time = datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
             start_time = start_time.astimezone(user_tz)
+            date_str = start_time.strftime('%b %d, %Y')
             if 'dateTime' in event['end']:
                 end_time = datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00'))
                 end_time = end_time.astimezone(user_tz)
-                return f"{start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
-            return f"{start_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
+                return f"{date_str} | {start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
+            return f"{date_str} | {start_time.strftime('%I:%M %p')} {start_time.strftime('%Z')}"
         else:
+            # For all-day events, get the date from start.date
+            if 'date' in event['start']:
+                date_obj = datetime.strptime(event['start']['date'], '%Y-%m-%d')
+                return f"{date_obj.strftime('%b %d, %Y')} | All Day"
             return "All Day"
     except Exception as e:
         return "Time not available"
